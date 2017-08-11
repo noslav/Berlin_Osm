@@ -169,11 +169,13 @@ import re
 import xml.etree.cElementTree as ET
 import cerberus
 import schema
+import time
 
+
+start = time.time()
 #perform all imports to be used in the analysis
 #Probably more than I need
-OSM_PATH = "Berlin_old2.osm.xml" #provide the osm file name in the same directory 
-
+OSM_PATH = "Berlin_new.osm.xml" #provide the osm file name in the same directory 
 NODES_PATH = "nodes.csv" #csv files written from dictionaries created with formats above
 NODE_TAGS_PATH = "nodes_tags.csv" #these will be used to create the SQL database
 WAYS_PATH = "ways.csv" #they will be joint using IDs preferably 
@@ -185,7 +187,7 @@ LOWER_COLON = re.compile(r'^([a-z]|_)+:([a-z]|_)+')
 PROBLEMCHARS = re.compile(r'[=\+/&<>;\'"\?%#$@\,\. \t\r\n]') #
 #same as above here
 
-SCHEMA = schema.schema #what does this even mean?
+SCHEMA = schema.schema 
 
 # to Make sure the fields order in the csvs matches the column order in the sql table schema
 NODE_FIELDS = ['id', 'lat', 'lon', 'user', 'uid', 'version', 'changeset', 'timestamp']
@@ -195,6 +197,10 @@ WAY_TAGS_FIELDS = ['id', 'key', 'value', 'type']
 WAY_NODES_FIELDS = ['id', 'node_id', 'position']
 
 #this fucntion will be used to spit out the values of the "node" dictionaries
+
+# ================================================== #
+#              Main Shaping Function                 #
+# ================================================== #
 
 def shape_element(element, node_attr_fields=NODE_FIELDS, way_attr_fields=WAY_FIELDS,
                   problem_chars=PROBLEMCHARS, default_tag_type='regular'):
@@ -211,32 +217,74 @@ def shape_element(element, node_attr_fields=NODE_FIELDS, way_attr_fields=WAY_FIE
     way_tags = []
     way_tags_dict = {}
     #node_tags_audit = {}
-    
-
-
     #for value in tree.iter(): #for each interation of the file
     if element.tag == "node" : #if the value of the tag is "node"
             for tag in element.iter("node"): #get other tags within the tag == "node"
+            
+                # I understand that the fucntion call is quite long. Will try to make it shorter next time onwards.
+                # if I make the change a lot will have to be modified in the code probably breaking it.
+                
                 node_attribs_val.update(add_node_type(tag, tag.attrib['id'], tag.attrib['user'],tag.attrib['lat'],tag.attrib['lon'], tag.attrib ['uid'], tag.attrib['version'],tag.attrib['changeset'],tag.attrib['timestamp']))
+                
                 #this function takes the attributes from the tag- like id, user etc and makes a dictionary out of it
                 #print node_attribs_val
             id_val = tag.attrib['id']
             #print id_val
             for tag in element.iter("tag"):
                 #print "true"
-                #if is_street_name(tag) :
+                if is_street_name(tag) :
                     #checking if the street elements are what we want and then adding it to the node tags
-                node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'], default_tag_type)
-                #print node_tags
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)
+                
+                elif is_postcode(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print node_tags
+                    tags.append(node_tags)
+                
+                elif is_phone(tag):
+                    phone = correct_phone(tag)
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], phone, default_tag_type)
+                    tags.append(node_tags)
+                
+                elif is_name(tag):
+                    name = get_name(tag)
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], name, default_tag_type)
+                    tags.append(node_tags)
+                    
+                elif is_amenity(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)
+                    
+                elif is_addr_city(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)
+                    
+                elif is_suburb(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)        
+                    
+                elif is_addr_housenumber(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)
+                
+                elif is_addr_housename(tag):
+                    node_tags = add_node_tags(tag, id_val, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    tags.append(node_tags)     
+                    
+                else:
+                    pass
+                #§ node_tags
                 #else:
                 #    pass
                 #print node_tags
-                tags.append(node_tags)
+                #tags.append(node_tags)
                 #print tags
                 #print id_val, tag.attrib['k'], tag.attrib['v'], default_tag_types
                 # this is used to store the value of id for the subtag "tag" within "node"
             #this function takes the tags attributes like "k" and "v" values and makes a dictionray out of this.       
     elif element.tag =="way":
+        
         for tag in element.iter("way"):
                 #this function takes the attributes from the "way" like id, user etc and makes  a dictiornary
                 way_attribs_val = add_way_type(tag, tag.attrib["id"], tag.attrib["user"], tag.attrib["uid"], tag.attrib["version"], tag.attrib["changeset"], tag.attrib["timestamp"])
@@ -268,11 +316,44 @@ def shape_element(element, node_attr_fields=NODE_FIELDS, way_attr_fields=WAY_FIE
             
         for tag in element.iter("tag"):
                 #print tag, way_id2, tag.attrib['k'], tag.attrib['v'], default_tag_type
-                way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'], default_tag_type)
+                if is_street_name(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print "street name" ,  tag.attrib['v']
+                    way_tags.append(way_tags_dict)
 
-                way_tags.append(way_tags_dict)
+                elif is_postcode(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print "postcode",  tag.attrib['v']
+                    way_tags.append(way_tags_dict)    
+                    
+                elif is_phone(tag):
+                    phone = correct_phone(tag)
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], phone, default_tag_type)
+                    #print " phone " , phone
+                    way_tags.append(way_tags_dict)         
+                    
+                elif is_name(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print"name" ,  tag.attrib['v']
+                    way_tags.append(way_tags_dict)  
+                    
+                elif is_amenity(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print " amentiy " ,  tag.attrib['v']
+                    way_tags.append(way_tags_dict)  
+                    
+                elif is_addr_city(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print "address",  tag.attrib['v']
+                    way_tags.append(way_tags_dict)  
                 
-
+                elif is_way_postcode(tag):
+                    way_tags_dict = add_way_tags(tag, way_id2, tag.attrib['k'], tag.attrib['v'].encode('ascii','ignore'), default_tag_type)
+                    #print "way_postcode" , tag.attrib['v']
+                    way_tags.append(way_tags_dict) 
+                
+                else:
+                    pass
     else:
             pass
         
@@ -285,8 +366,81 @@ def shape_element(element, node_attr_fields=NODE_FIELDS, way_attr_fields=WAY_FIE
 #all the values with street names should be scanned and appended 
 # fucntion check if the values are street names
 
-#def is_street_name(elem):
-#    return (elem.attrib['k'] == "addr:street")
+# ================================================== #
+#               Tag / Value auditing fucntions                  #
+# ================================================== #
+def get_name(elem):
+    return (elem.attrib['v']).encode('ascii','ignore')
+    
+def is_way_postcode(elem):
+    return (elem.attrib['k'] == "post_code")
+
+def is_street_name(elem):
+    return (elem.attrib['k'] == "addr:street")
+    
+def is_postcode(elem):
+    return (elem.attrib['k'] == "addr:postcode") and re.match(r'^\d{5}$', elem.attrib['v'])
+                
+def is_phone(elem):
+    return (elem.attrib['k'] == "contact:phone" )
+
+def is_addr_housenumber(elem):
+    return (elem.attrib['k'] == "addr:housenumber" )
+    
+def is_addr_housename(elem):
+    return (elem.attrib['k'] == "contact:housename")   
+    
+def is_addr_city(elem):
+    return (elem.attrib['k'] == "addr:city" )
+    
+def is_name(elem):
+    return (elem.attrib['k'] == "name")                    
+                    
+def is_amenity(elem):
+    return (elem.attrib['k'] == "amenity")
+    
+def is_suburb(elem):
+    return (elem.attrib['k'] == "addr:suburb")
+    
+
+    
+def correct_phone(elem):
+
+    if '{}'.format(elem.attrib['v'])[0] == '+':
+        return elem.attrib['v']
+
+    elif '{}'.format(elem.attrib['v'])[0] == '0' :
+        oldphone  = '{}'.format(elem.attrib['v'])
+        newphone = '+49' + oldphone[1:]
+        print oldphone,newphone
+        return newphone
+        
+    elif '{}'.format(elem.attrib['v'])[0] == '4' :
+        print elem.attrib['v'], '+'+ elem.attrib['v'] 
+        return '+'+ elem.attrib['v']
+
+    elif '{}'.format(elem.attrib['v'])[0] == '3' :
+        print elem.attrib['v'], '+49'+ elem.attrib['v'] 
+        return '+49'+ elem.attrib['v']
+
+    elif '{}'.format(elem.attrib['v'])[0] == '-':
+        oldphone  = '{}'.format(elem.attrib['v'])
+        newphone = '+49' + oldphone[1:]
+        print oldphone,newphone
+        return newphone
+        
+    elif '{}'.format(elem.attrib['v'])[1] == '.' :
+        oldphone  = '{}'.format(elem.attrib['v'])        
+        newphone = '+4' + oldphone[2:]
+        print oldphone,newphone
+        return newphone
+
+    else:
+        pass
+         
+# ================================================== #
+#               Dictionary building fucntions                  #
+# ================================================== #
 
 def add_way_type(tag, id, user, uid, version, changeset, timestamp ):
     
@@ -306,11 +460,11 @@ def add_way_type(tag, id, user, uid, version, changeset, timestamp ):
     if uid:
         way_attribs.update({"uid": int(uid)})
     if version:
-        way_attribs.update({"version":version})
+        way_attribs.update({"version": str(version)})
     if changeset:
         way_attribs.update({"changeset": int(changeset)})
     if timestamp:
-        way_attribs.update({"timestamp": timestamp})
+        way_attribs.update({"timestamp": str(timestamp)})
 
     else:
         pass
@@ -344,9 +498,9 @@ def add_way_tags(tag, id, key, value, default_tag_type):
     if id:
         way_tags2.update({"id": int(id) })
     if key:
-        way_tags2.update({"key" : key})
+        way_tags2.update({"key" : str(key)})
     if value:
-        way_tags2.update({"value":value})
+        way_tags2.update({"value": value})
     if type: 
         way_tags2.update({"type" : default_tag_type})
     else:
@@ -381,7 +535,7 @@ def add_node_type(tag, id, user, lat, lon, uid, version, changeset, timestamp):
     if uid:
         node_attribs.update({"uid": int(uid)})
     if version:
-        node_attribs.update({"version":version})
+        node_attribs.update({"version": version})
     if timestamp:
         node_attribs.update({"timestamp": timestamp})
     if changeset:
@@ -408,7 +562,9 @@ def add_node_tags(tag, id, key, value, default_tag_type):
     if key:
         tags2.update({"key" : key})
     if value:
-        tags2.update({"value": value})  
+        tags2.update({"value": value}) 
+        #print "key: ", key, "Value: ", value, "type: ", type(value)
+        
     if default_tag_type:
         tags2.update({"type":default_tag_type})
     else:
@@ -495,19 +651,10 @@ def process_map(file_in, validate):
                     way_nodes_writer.writerows(el['way_nodes'])
                     way_tags_writer.writerows(el['way_tags'])
 
-                        #for tag in value.iter("node_tags"):
-                         #   tags = add_node_tags(tag, tag.attrib['id'], tag.attrib['key'],tag.attrib['value'],tag.attrib['type'])
-        #if value.tag =="way" :
-             
-        #print tags   
-        #print note_attribs_val
-        #if value.tag =="way":
-        #    for tag in value.iter("way"):
-        #            add_way_type()
-        #            add_way_nodes()
-         #           add_way_tags()
          
 if __name__ == '__main__':
     # Note: Validation is ~ 10X slower. For the project consider using a small
     # sample of the map when validating.
     process_map(OSM_PATH, validate=True)
+    print "success! : Look at the csvs in current directory"
+    print 'Wrangling, cleaning & writing took', time.time()-start, 'seconds.'
